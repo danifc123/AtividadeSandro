@@ -1,0 +1,24 @@
+{
+  "name": "karen",
+  "version": "1.0.0",
+  "description": "Karen — Agente de IA Pessoal via Telegram",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node --loader tsx/esm src/index.ts",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "grammy": "^1.31.0",
+    "groq-sdk": "^0.7.0",
+    "openai": "^4.67.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
