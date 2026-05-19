@@ -1,9 +1,18 @@
 import { config } from "../config.js";
 import { callGroq, type LLMMessage, type GroqToolCall } from "../llm/groq.js";
 import { callOpenRouter } from "../llm/openrouter.js";
-import { saveMessage, getHistory } from "../memory/sqlite.js";
+import { saveMessage } from "../memory/sqlite.js";
 import { llmTools, executeTool } from "../tools/registry.js";
-import { buildSystemPrompt } from "./prompt.js";
+import {
+  buildSystemPrompt,
+  parseThought,
+  logThought,
+  logAction,
+  logObservation,
+  logFinalReply,
+} from "./prompt.js";
+import { buildContextWindow } from "./memory.js";
+import { storedToLLM } from "./context.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +20,7 @@ export interface AgentResult {
   reply: string;
   iterations: number;
   usedFallback: boolean;
+  estimatedTokens: number;
 }
 
 // ─── LLM call with auto-fallback ──────────────────────────────────────────────
@@ -25,23 +35,27 @@ async function callLLM(
       const response = await callGroq(messages, tools);
       return { response, usedFallback: false };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       const isRateLimit =
-        err instanceof Error &&
-        (err.message.includes("rate_limit") ||
-          err.message.includes("429") ||
-          err.message.includes("quota"));
+        msg.includes("rate_limit") || msg.includes("429") || msg.includes("quota");
 
       if (isRateLimit && config.openrouter.apiKey) {
         console.warn("⚠️  Groq rate limit atingido. Usando OpenRouter como fallback...");
         const response = await callOpenRouter(messages, tools);
         return { response, usedFallback: true };
       }
-      throw err;
+
+      console.error("❌ Erro na API LLM:", msg);
+      throw new Error(
+        isRateLimit
+          ? "Limite de requisições da API atingido. Tente novamente em alguns minutos."
+          : `Falha ao contactar o modelo: ${msg}`
+      );
     }
-  } else {
-    const response = await callOpenRouter(messages, tools);
-    return { response, usedFallback: true };
   }
+
+  const response = await callOpenRouter(messages, tools);
+  return { response, usedFallback: true };
 }
 
 // ─── Agent Loop ───────────────────────────────────────────────────────────────
@@ -54,60 +68,59 @@ export async function runAgentLoop(
   let iterations = 0;
   let usedFallback = false;
 
-  // 1. Persist the user message
   saveMessage(chatId, { role: "user", content: userMessage });
 
-  // 2. Build the message array for the LLM
-  //    system prompt + last 50 messages from history
-  const history = getHistory(chatId, 50);
+  const contextWindow = await buildContextWindow(chatId, usedFallback);
 
   const messages: LLMMessage[] = [
-    { role: "system", content: buildSystemPrompt() },
-    ...history.map((m) => {
-      // The Groq API rejects null values for optional fields — strip them.
-      const msg: LLMMessage = { role: m.role, content: m.content };
-      if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-      if (m.name) msg.name = m.name;
-      return msg;
-    }),
+    { role: "system", content: buildSystemPrompt(contextWindow.summary) },
+    ...contextWindow.messages.map(storedToLLM),
   ];
 
-  // 3. Agent loop
   while (iterations < maxIterations) {
     iterations++;
     console.log(`\n🔄 Iteração ${iterations}/${maxIterations}`);
 
-    // Call LLM
-    const { response, usedFallback: fb } = await callLLM(
-      messages,
-      llmTools,
-      usedFallback
-    );
+    const { response, usedFallback: fb } = await callLLM(messages, llmTools, usedFallback);
     usedFallback = usedFallback || fb;
 
     const { content, tool_calls, finish_reason } = response;
 
-    // ── Case 1: No tool calls — final answer ──────────────────────────────
-    if (!tool_calls || tool_calls.length === 0) {
-      const reply = content ?? "(sem resposta)";
-
-      // Persist assistant reply
-      saveMessage(chatId, { role: "assistant", content: reply });
-
-      console.log(`💬 Resposta final após ${iterations} iteração(ões).`);
-      return { reply, iterations, usedFallback };
+    const { thought, reply: cleanContent } = parseThought(content);
+    if (thought) {
+      logThought(thought, iterations);
     }
 
-    // ── Case 2: Tool calls requested ─────────────────────────────────────
-    // Add the assistant message with tool_calls to the local context
-    // (we don't persist tool_calls to SQLite — only text messages)
+    if (!tool_calls || tool_calls.length === 0) {
+      const reply = cleanContent || content || "(sem resposta)";
+
+      saveMessage(chatId, { role: "assistant", content: reply });
+      logFinalReply(reply, iterations);
+
+      return { reply, iterations, usedFallback, estimatedTokens: contextWindow.estimatedTokens };
+    }
+
+    // ── Pilar C: tool call(s) ─────────────────────────────────────────────
+    logAction(
+      (tool_calls as GroqToolCall[]).map((tc) => ({
+        name: tc.function.name,
+        args: tc.function.arguments || "{}",
+      })),
+      iterations
+    );
+
     messages.push({
       role: "assistant",
       content: content ?? null,
       tool_calls,
     });
 
-    // Execute each tool in sequence and append results
+    saveMessage(chatId, {
+      role: "assistant",
+      content: content ?? "",
+      tool_calls: tool_calls as GroqToolCall[],
+    });
+
     for (const toolCall of tool_calls as GroqToolCall[]) {
       let toolResult: string;
 
@@ -116,23 +129,27 @@ export async function runAgentLoop(
           string,
           unknown
         >;
-        toolResult = await executeTool(toolCall.function.name, args);
+        toolResult = await executeTool(toolCall.function.name, args, { chatId });
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`❌ Erro na tool "${toolCall.function.name}": ${errorMsg}`);
         toolResult = JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMsg,
+          tool: toolCall.function.name,
+          hint: "A ferramenta falhou. Informe o usuário de forma amigável.",
         });
-        console.error(`❌ Erro na tool ${toolCall.function.name}:`, err);
       }
 
-      // Append tool result to local message context
-      messages.push({
+      logObservation(toolCall.function.name, toolResult, iterations);
+
+      const toolMessage: LLMMessage = {
         role: "tool",
         content: toolResult,
         tool_call_id: toolCall.id,
         name: toolCall.function.name,
-      });
+      };
+      messages.push(toolMessage);
 
-      // Persist tool result to memory (as a plain message for retrieval)
       saveMessage(chatId, {
         role: "tool",
         content: toolResult,
@@ -141,19 +158,20 @@ export async function runAgentLoop(
       });
     }
 
-    // If finish_reason is "stop" even with tool_calls, break safety valve
     if (finish_reason === "stop" && tool_calls.length === 0) break;
   }
 
-  // 4. Max iterations reached — ask LLM for a final answer without tools
   console.warn(`⚠️  Limite de ${maxIterations} iterações atingido. Forçando resposta final.`);
 
   const { response: finalResponse } = await callLLM(messages, [], usedFallback);
+  const { reply: finalClean } = parseThought(finalResponse.content);
   const reply =
-    finalResponse.content ??
+    finalClean ||
+    finalResponse.content ||
     "Desculpe, atingi o limite de processamento para esta mensagem.";
 
   saveMessage(chatId, { role: "assistant", content: reply });
+  logFinalReply(reply, iterations);
 
-  return { reply, iterations, usedFallback };
+  return { reply, iterations, usedFallback, estimatedTokens: contextWindow.estimatedTokens };
 }

@@ -11,9 +11,11 @@
   "dependencies": {
     "better-sqlite3": "^11.3.0",
     "dotenv": "^16.4.5",
+    "duck-duck-scrape": "^2.2.7",
     "grammy": "^1.31.0",
     "groq-sdk": "^0.7.0",
-    "openai": "^4.67.3"
+    "openai": "^4.67.3",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",

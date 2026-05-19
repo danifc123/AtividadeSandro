@@ -1,102 +1,98 @@
 # Karen — Agente de IA Pessoal via Telegram
 
-Um agente de IA pessoal, modular e seguro que roda localmente e usa o Telegram como única interface.
+Agente modular, seguro e local, com Telegram como única interface. Implementa os requisitos da atividade em duas partes.
 
-## ✨ Funcionalidades
+## Parte 1 — Base
 
-- 🤖 Bot do Telegram com long polling (sem servidor web)
-- 🧠 LLM via Groq (Llama 3.3 70B) com fallback para OpenRouter
-- 🔄 Agent loop com suporte a ferramentas (tools) e limite de iterações
-- 💾 Memória persistente por conversa via SQLite
-- 🔒 Whitelist de usuários — acesso completamente bloqueado para IDs não autorizados
-- 🔧 Ferramenta `get_current_time` incluída
+- Bot Telegram (grammy) com **long polling** e **whitelist** de usuários
+- LLM **Groq** (Llama 3.3 70B) com fallback **OpenRouter**
+- Agent loop com limite de iterações
+- Memória persistente **SQLite** (`better-sqlite3`)
+- Ferramenta `get_current_time`
 
-## 📁 Estrutura
+## Parte 2 — Desafio técnico (ordem do enunciado)
+
+### 1. Três pilares
+
+| Pilar | Implementação | Arquivos |
+|-------|---------------|----------|
+| **A — Planejamento (ReAct)** | Loop Pensamento → Ação → Observação → Resposta Final; tags `<thought>`; logs no terminal | `src/agent/prompt.ts`, `src/agent/loop.ts` |
+| **B — Memória de contexto** | Janela deslizante + sumarização quando ~3000 tokens; `/clear` limpa histórico + resumo + arquivo | `src/agent/memory.ts`, `src/memory/sqlite.ts` |
+| **C — Tool calling** | Registry de tools; modelo decide quando chamar; histórico com `tool_calls` persistido | `src/tools/`, `src/agent/loop.ts` |
+
+### 2. Duas integrações de mundo real
+
+| Integração | Como usar |
+|------------|-----------|
+| **Web Search** | Pergunte sobre notícias, clima, cotações etc. — tool `web_search` (DuckDuckGo) |
+| **Análise de arquivos** | Envie documento `.csv`, `.txt` ou `.pdf` (até 2 MB), depois pergunte — tool `analyze_uploaded_file` |
+
+### 3. Critérios de avaliação (rubrica)
+
+- **Prompt system**: anti-alucinação, ReAct obrigatório, lista de tools no prompt
+- **Tratamento de erros**: tools, API (rate limit + fallback), Telegram com mensagens claras
+- **Logs de pensamento**: terminal mostra 💭 Pensamento, ⚡ Ação, 👁 Observação, 💬 Resposta Final
+- **Eficiência de tokens**: estimativa + compressão/sumarização (`/status` mostra uso)
+
+## Estrutura
 
 ```
 karen/
 ├── src/
-│   ├── index.ts               # Entry point
-│   ├── config.ts              # Configuração e validação de variáveis de ambiente
-│   ├── bot/
-│   │   └── telegram.ts        # Bot grammy (whitelist + handlers)
+│   ├── index.ts
+│   ├── config.ts
+│   ├── bot/telegram.ts
 │   ├── agent/
-│   │   ├── loop.ts            # Agent loop com suporte a tools
-│   │   └── prompt.ts          # System prompt da Karen
-│   ├── llm/
-│   │   ├── groq.ts            # Cliente Groq (primário)
-│   │   └── openrouter.ts      # Cliente OpenRouter (fallback)
-│   ├── memory/
-│   │   └── sqlite.ts          # Persistência com better-sqlite3
+│   │   ├── loop.ts
+│   │   ├── prompt.ts
+│   │   ├── memory.ts
+│   │   └── context.ts
+│   ├── llm/groq.ts, openrouter.ts
+│   ├── memory/sqlite.ts
+│   ├── files/uploads.ts
 │   └── tools/
-│       ├── tool.ts            # Interface Tool
-│       ├── registry.ts        # Registro e dispatcher de tools
-│       └── get_current_time.ts
+│       ├── get_current_time.ts
+│       ├── web_search.ts
+│       └── analyze_uploaded_file.ts
 ├── .env.example
-├── package.json
-└── tsconfig.json
+└── package.json
 ```
 
-## 🚀 Instalação e Uso
-
-### 1. Pré-requisitos
-
-- Node.js 20+
-- npm
-
-### 2. Clone e instale dependências
+## Instalação
 
 ```bash
 cd karen
 npm install
-```
-
-### 3. Configure as variáveis de ambiente
-
-```bash
-cp .env.example .env
-```
-
-Edite o `.env` com suas credenciais:
-
-| Variável | Obrigatória | Descrição |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Token do bot (via @BotFather) |
-| `TELEGRAM_ALLOWED_USER_IDS` | ✅ | IDs separados por vírgula |
-| `GROQ_API_KEY` | ✅ | Chave da API Groq |
-| `OPENROUTER_API_KEY` | ❌ | Fallback opcional |
-| `GROQ_MODEL` | ❌ | Padrão: `llama-3.3-70b-versatile` |
-| `DB_PATH` | ❌ | Padrão: `./memory.db` |
-| `AGENT_MAX_ITERATIONS` | ❌ | Padrão: `10` |
-
-### 4. Execute
-
-```bash
+cp .env.example .env   # preencha as chaves
 npm run dev
 ```
 
-## 💬 Comandos do Telegram
+### Variáveis obrigatórias
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_ALLOWED_USER_IDS` (seu ID numérico, vírgula se vários)
+- `GROQ_API_KEY`
+
+## Comandos Telegram
 
 | Comando | Descrição |
-|---|---|
+|---------|-----------|
 | `/start` | Apresentação |
-| `/help` | Lista de comandos |
-| `/clear` | Limpa o histórico da conversa |
-| `/status` | Informações da sessão atual |
+| `/help` | Ajuda |
+| `/clear` | Limpa histórico, resumo e arquivo em cache |
+| `/status` | Tokens, resumo, arquivo carregado |
 
-## 🔧 Adicionando uma Nova Ferramenta
+## Testes sugeridos (para demonstração)
 
-1. Crie `src/tools/minha_tool.ts` implementando a interface `Tool`
-2. Importe em `src/tools/registry.ts`
-3. Adicione ao array `allTools`
+1. **ReAct**: qualquer pergunta → ver logs no terminal (`npm run dev`).
+2. **Tool**: "Que horas são?" → `get_current_time`.
+3. **Web**: "Qual a cotação do dólar hoje?" → `web_search`.
+4. **Arquivo**: envie um `.csv` → "Quantas linhas tem?" / "Quais colunas?".
+5. **Memória**: conversa longa ou `/status` após muitas mensagens → ver compressão no log.
+6. **Erro**: `/clear` e perguntar sobre arquivo sem enviar → mensagem amigável.
 
-Pronto! O agent loop vai detectar e oferecer a tool ao LLM automaticamente.
+## Roadmap futuro
 
-## 🛣️ Roadmap (futuras iterações)
-
-- [ ] Transcrição de áudio (Whisper)
-- [ ] Texto para voz (ElevenLabs)
-- [ ] Deploy em cloud (Firebase Functions / Cloud Run)
-- [ ] Suporte a webhook (para produção na nuvem)
-- [ ] Ferramentas de busca web
-- [ ] Integração com Google Calendar / Gmail
+- Transcrição de áudio, TTS (ElevenLabs)
+- Deploy em nuvem (Firebase / webhook)
+- Google Calendar (já previsto no `.env.example`)

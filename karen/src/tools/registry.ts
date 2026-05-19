@@ -1,6 +1,8 @@
-import type { Tool } from "./tool.js";
+import type { Tool, ToolContext } from "./tool.js";
 import { toolToLLMFormat } from "./tool.js";
 import { getCurrentTimeTool } from "./get_current_time.js";
+import { webSearchTool } from "./web_search.js";
+import { analyzeUploadedFileTool } from "./analyze_uploaded_file.js";
 
 // ─── Tool Registry ────────────────────────────────────────────────────────────
 // To add a new tool:
@@ -10,7 +12,8 @@ import { getCurrentTimeTool } from "./get_current_time.js";
 
 export const allTools: Tool[] = [
   getCurrentTimeTool,
-  // 👆 Add new tools here
+  webSearchTool,
+  analyzeUploadedFileTool,
 ];
 
 /** Map of tool name → tool instance for fast lookup during execution */
@@ -24,7 +27,8 @@ export const llmTools = allTools.map(toolToLLMFormat);
 /** Execute a tool by name. Throws if the tool is not found. */
 export async function executeTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  ctx: ToolContext
 ): Promise<string> {
   const tool = toolMap.get(name);
   if (!tool) {
@@ -32,7 +36,7 @@ export async function executeTool(
   }
 
   console.log(`🔧 Executando tool: ${name}`, args);
-  const result = await tool.execute(args);
+  const result = await tool.execute(args, ctx);
   console.log(`✅ Resultado de ${name}:`, result);
 
   return JSON.stringify(result, null, 2);

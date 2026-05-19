@@ -15,6 +15,11 @@ export interface ToolSchema {
   required: string[];
 }
 
+/** Contexto da sessão passado às tools que precisam do chat (ex.: arquivos). */
+export interface ToolContext {
+  chatId: string | number;
+}
+
 export interface Tool {
   /** Unique name used by the LLM to call this tool */
   name: string;
@@ -23,7 +28,7 @@ export interface Tool {
   /** JSON Schema for the tool's input parameters */
   schema: ToolSchema;
   /** Execute the tool. Must return a serialisable value. */
-  execute(args: Record<string, unknown>): Promise<unknown>;
+  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
 }
 
 /** Serialise a tool to the OpenAI/Groq function-calling format */
