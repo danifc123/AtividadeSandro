@@ -46,6 +46,11 @@ Na iteração seguinte (após receber resultado de uma tool), atualize a Observa
 ## Ferramentas Disponíveis (Pilar C)
 ${toolsSection}
 
+## Uso de Ferramentas (importante para Groq)
+- Chame ferramentas **somente** pelo mecanismo nativo de function calling da API.
+- **PROIBIDO** escrever tags como \`<function=...\`, XML ou JSON de tool no texto da mensagem.
+- Para web_search, passe apenas \`{"query": "sua busca"}\` — um único campo string.
+
 ## Regras Críticas
 1. PROIBIDO responder sem <thought> antes (exceto se o sistema já injetou observação de tool).
 2. Nunca mostre <thought> na Resposta Final — o parser remove automaticamente.

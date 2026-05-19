@@ -1,5 +1,9 @@
 import Groq from "groq-sdk";
 import { config } from "../config.js";
+import {
+  parseGroqErrorBody,
+  salvageToolCallsFromFailedGeneration,
+} from "./tool_salvage.js";
 
 // ─── Groq LLM Client ──────────────────────────────────────────────────────────
 
@@ -40,24 +44,53 @@ export async function callGroq(
   tools: object[]
 ): Promise<LLMResponse> {
   const client = getGroqClient();
+  const hasTools = tools.length > 0;
 
-  const response = await client.chat.completions.create({
-    model: config.groq.model,
-    messages: messages as Parameters<typeof client.chat.completions.create>[0]["messages"],
-    tools: tools.length > 0
-      ? (tools as Parameters<typeof client.chat.completions.create>[0]["tools"])
-      : undefined,
-    tool_choice: tools.length > 0 ? "auto" : undefined,
-    temperature: 0.7,
-    max_tokens: 2048,
-  });
+  try {
+    const response = await client.chat.completions.create({
+      model: config.groq.model,
+      messages: messages as Parameters<
+        typeof client.chat.completions.create
+      >[0]["messages"],
+      tools: hasTools
+        ? (tools as Parameters<typeof client.chat.completions.create>[0]["tools"])
+        : undefined,
+      tool_choice: hasTools ? "auto" : undefined,
+      parallel_tool_calls: hasTools ? false : undefined,
+      temperature: hasTools ? 0.2 : 0.7,
+      max_tokens: 2048,
+    });
 
-  const choice = response.choices[0];
-  if (!choice) throw new Error("Groq retornou resposta vazia.");
+    const choice = response.choices[0];
+    if (!choice) throw new Error("Groq retornou resposta vazia.");
 
-  return {
-    content: choice.message.content ?? null,
-    tool_calls: (choice.message.tool_calls as GroqToolCall[]) ?? [],
-    finish_reason: choice.finish_reason ?? "stop",
-  };
+    return {
+      content: choice.message.content ?? null,
+      tool_calls: (choice.message.tool_calls as GroqToolCall[]) ?? [],
+      finish_reason: choice.finish_reason ?? "stop",
+    };
+  } catch (err) {
+    const groqErr = parseGroqErrorBody(err);
+    if (
+      groqErr?.code === "tool_use_failed" &&
+      groqErr.failed_generation &&
+      hasTools
+    ) {
+      const tool_calls = salvageToolCallsFromFailedGeneration(
+        groqErr.failed_generation
+      );
+      if (tool_calls.length > 0) {
+        console.warn(
+          "⚠️  Groq rejeitou formato de tool — recuperando chamada:",
+          tool_calls[0].function.name
+        );
+        return {
+          content: null,
+          tool_calls,
+          finish_reason: "tool_calls",
+        };
+      }
+    }
+    throw err;
+  }
 }

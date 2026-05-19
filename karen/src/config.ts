@@ -44,6 +44,12 @@ export const config = {
     maxIterations: parseInt(optional_env("AGENT_MAX_ITERATIONS", "10"), 10),
     name: "Karen",
   },
+
+  /** Opcional — melhora buscas gerais (Serper/Tavily). Câmbio usa AwesomeAPI sem chave. */
+  search: {
+    serperApiKey: optional_env("SERPER_API_KEY"),
+    tavilyApiKey: optional_env("TAVILY_API_KEY"),
+  },
 } as const;
 
 export type Config = typeof config;

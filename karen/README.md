@@ -24,7 +24,7 @@ Agente modular, seguro e local, com Telegram como única interface. Implementa o
 
 | Integração | Como usar |
 |------------|-----------|
-| **Web Search** | Pergunte sobre notícias, clima, cotações etc. — tool `web_search` (DuckDuckGo) |
+| **Web Search** | `web_search` — cotações via **AwesomeAPI** (sem chave); buscas gerais via Serper/Tavily (opcional) ou DuckDuckGo |
 | **Análise de arquivos** | Envie documento `.csv`, `.txt` ou `.pdf` (até 2 MB), depois pergunte — tool `analyze_uploaded_file` |
 
 ### 3. Critérios de avaliação (rubrica)
@@ -54,7 +54,7 @@ karen/
 │       ├── get_current_time.ts
 │       ├── web_search.ts
 │       └── analyze_uploaded_file.ts
-├── .env.example
+├── .env                 # única configuração (crie na primeira vez)
 └── package.json
 ```
 
@@ -63,15 +63,29 @@ karen/
 ```bash
 cd karen
 npm install
-cp .env.example .env   # preencha as chaves
 npm run dev
 ```
 
-### Variáveis obrigatórias
+### Configuração — arquivo único `karen/.env`
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_ALLOWED_USER_IDS` (seu ID numérico, vírgula se vários)
-- `GROQ_API_KEY`
+Toda a configuração fica em **um só arquivo**: `karen/.env` (já está no `.gitignore`).
+
+**Obrigatórias:**
+
+| Variável | Descrição |
+|----------|-----------|
+| `TELEGRAM_BOT_TOKEN` | Token do @BotFather |
+| `TELEGRAM_ALLOWED_USER_IDS` | Seu ID Telegram (vírgula se vários) |
+| `GROQ_API_KEY` | Chave da API Groq |
+
+**Opcionais:**
+
+| Variável | Descrição |
+|----------|-----------|
+| `OPENROUTER_API_KEY` | Fallback se Groq atingir limite |
+| `SERPER_API_KEY` | Buscas gerais (serper.dev) — cotações funcionam sem |
+| `TAVILY_API_KEY` | Alternativa de busca |
+| `GROQ_MODEL`, `DB_PATH`, `AGENT_MAX_ITERATIONS` | Têm padrão no código |
 
 ## Comandos Telegram
 
@@ -86,7 +100,7 @@ npm run dev
 
 1. **ReAct**: qualquer pergunta → ver logs no terminal (`npm run dev`).
 2. **Tool**: "Que horas são?" → `get_current_time`.
-3. **Web**: "Qual a cotação do dólar hoje?" → `web_search`.
+3. **Web**: "Qual a cotação do dólar hoje?" → `web_search` (AwesomeAPI; no log: `via awesomeapi`).
 4. **Arquivo**: envie um `.csv` → "Quantas linhas tem?" / "Quais colunas?".
 5. **Memória**: conversa longa ou `/status` após muitas mensagens → ver compressão no log.
 6. **Erro**: `/clear` e perguntar sobre arquivo sem enviar → mensagem amigável.
@@ -95,4 +109,4 @@ npm run dev
 
 - Transcrição de áudio, TTS (ElevenLabs)
 - Deploy em nuvem (Firebase / webhook)
-- Google Calendar (já previsto no `.env.example`)
+- Google Calendar (`GOOGLE_APPLICATION_CREDENTIALS` no `.env`)

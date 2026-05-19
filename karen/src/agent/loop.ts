@@ -38,9 +38,12 @@ async function callLLM(
       const msg = err instanceof Error ? err.message : String(err);
       const isRateLimit =
         msg.includes("rate_limit") || msg.includes("429") || msg.includes("quota");
+      const isToolUseFailed = msg.includes("tool_use_failed");
 
-      if (isRateLimit && config.openrouter.apiKey) {
-        console.warn("⚠️  Groq rate limit atingido. Usando OpenRouter como fallback...");
+      if ((isRateLimit || isToolUseFailed) && config.openrouter.apiKey) {
+        console.warn(
+          `⚠️  Groq ${isToolUseFailed ? "tool_use_failed" : "rate limit"} — tentando OpenRouter...`
+        );
         const response = await callOpenRouter(messages, tools);
         return { response, usedFallback: true };
       }
