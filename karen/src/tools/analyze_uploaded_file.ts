@@ -1,5 +1,6 @@
 import type { Tool } from "./tool.js";
 import { getUploadedFile } from "../files/uploads.js";
+import { wrapUntrustedFileExcerpt } from "../guardrails/security.js";
 
 const MAX_EXCERPT_CHARS = 12_000;
 
@@ -69,7 +70,8 @@ export const analyzeUploadedFileTool: Tool = {
       ...(file.pageCount !== undefined ? { pageCount: file.pageCount } : {}),
       charCount: file.charCount ?? file.content.length,
       question: question ?? null,
-      excerpt,
+      excerpt: wrapUntrustedFileExcerpt(excerpt, file.filename),
+      guardrail: "conteúdo_externo_sanitizado",
     };
   },
 };

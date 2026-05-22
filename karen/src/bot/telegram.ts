@@ -16,6 +16,12 @@ import {
   getUploadedFile,
   MAX_UPLOAD_BYTES,
 } from "../files/uploads.js";
+import { formatCostReport } from "../guardrails/cost.js";
+import { getCostTotals } from "../memory/cost_store.js";
+import {
+  checkExternalContent,
+  logSecurityEvent,
+} from "../guardrails/security.js";
 
 // ─── Bot Setup ────────────────────────────────────────────────────────────────
 
@@ -48,7 +54,9 @@ export function createBot(): Bot {
         `/start — Apresentação\n` +
         `/help — Esta mensagem\n` +
         `/clear — Limpa histórico, resumo e arquivo em cache\n` +
-        `/status — Informações da sessão\n\n` +
+        `/status — Informações da sessão\n` +
+        `/custos — Gasto acumulado com APIs (USD)\n\n` +
+        `*Guardrails:* controle de custo em USD e bloqueio de comandos externos (texto/PDF/CSV).\n\n` +
         `*Integrações:*\n` +
         `• Envie uma *mensagem de texto* para conversar\n` +
         `• Envie um *documento* (.csv, .txt ou .pdf, até 2 MB) e depois pergunte sobre o arquivo\n` +
@@ -75,6 +83,7 @@ export function createBot(): Bot {
     const summary = getKV<string>(summaryKey(chatId));
     const summaryTokens = summary ? estimateTokens(summary) : 0;
     const uploaded = getUploadedFile(chatId);
+    const costs = getCostTotals(chatId);
 
     await ctx.reply(
       `*Status da sessão:*\n\n` +
@@ -84,10 +93,18 @@ export function createBot(): Bot {
         `📊 Tokens estimados: ~${histTokens + summaryTokens}\n` +
         `📝 Resumo: ${summary ? "✅ ativo" : "❌ nenhum"}\n` +
         `📎 Arquivo: ${uploaded ? `\`${uploaded.filename}\` (${uploaded.type})` : "nenhum"}\n` +
+        `💵 Custo desta conversa: $${costs.sessionUsd.toFixed(4)} USD\n` +
         `🔄 Max iterações: ${config.agent.maxIterations}\n` +
         `👤 User ID: \`${ctx.from?.id}\``,
       { parse_mode: "Markdown" }
     );
+  });
+
+  bot.command("custos", async (ctx) => {
+    const totals = getCostTotals(ctx.chat.id);
+    await ctx.reply(formatCostReport(totals, ctx.chat.id), {
+      parse_mode: "Markdown",
+    });
   });
 
   // ── Integração: upload de arquivos (CSV / TXT / PDF) ─────────────────────
@@ -141,15 +158,26 @@ export function createBot(): Bot {
 
     console.log(`\n📨 [${chatId}] ${ctx.from?.first_name}: ${userMessage}`);
 
+    const security = checkExternalContent(userMessage, "user_message");
+    logSecurityEvent("user_message", security);
+    if (!security.allowed) {
+      await ctx.reply(
+        `🛡️ *Mensagem bloqueada*\n\n${security.reason}\n\n` +
+          `Motivos detectados: ${security.violations.join(", ")}`,
+        { parse_mode: "Markdown" }
+      );
+      return;
+    }
+
     await ctx.replyWithChatAction("typing");
 
     try {
-      const { reply, iterations, usedFallback, estimatedTokens } =
-        await runAgentLoop(chatId, userMessage);
+      const { reply, iterations, usedFallback, estimatedTokens, sessionCostUsd, blocked } =
+        await runAgentLoop(chatId, userMessage, security);
 
       const isDev = process.env.NODE_ENV !== "production";
-      const footer = isDev
-        ? `\n\n_[${iterations} iter${usedFallback ? " • fallback" : ""} • ~${estimatedTokens} tokens]_`
+      const footer = isDev && !blocked
+        ? `\n\n_[${iterations} iter${usedFallback ? " • fallback" : ""} • ~${estimatedTokens} tokens • $${sessionCostUsd.toFixed(4)} USD]_`
         : "";
 
       await ctx

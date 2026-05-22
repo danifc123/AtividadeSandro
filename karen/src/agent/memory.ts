@@ -7,8 +7,10 @@ import {
   summaryKey,
 } from "../memory/sqlite.js";
 import type { StoredMessage } from "../memory/sqlite.js";
+import { config } from "../config.js";
 import { callGroq } from "../llm/groq.js";
 import { callOpenRouter } from "../llm/openrouter.js";
+import { recordLLMUsage } from "../guardrails/cost.js";
 
 // ─── Token Estimation ─────────────────────────────────────────────────────────
 // Portuguese text ≈ 3.5 chars/token. +8 overhead per message for role tokens.
@@ -77,7 +79,12 @@ export async function buildContextWindow(
   }
 
   console.log(`📝 Sumarizando ${toSummarize.length} mensagens antigas...`);
-  const newSummary = await summarizeMessages(toSummarize, existingSummary, useFallback);
+  const newSummary = await summarizeMessages(
+    toSummarize,
+    existingSummary,
+    useFallback,
+    id
+  );
 
   // Persist compressed state to DB
   setKV(summaryKey(chatId), newSummary);
@@ -103,7 +110,8 @@ export async function buildContextWindow(
 async function summarizeMessages(
   messages: StoredMessage[],
   existingSummary: string | null,
-  useFallback: boolean
+  useFallback: boolean,
+  chatId: string
 ): Promise<string> {
   const transcript = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -115,19 +123,40 @@ async function summarizeMessages(
     : `Conversa a resumir:\n${transcript}`;
 
   try {
-    const callFn = useFallback ? callOpenRouter : callGroq;
-    const result = await callFn(
-      [
-        {
-          role: "system",
-          content:
-            "Resuma a conversa abaixo em português de forma concisa. " +
-            "Preserve fatos, preferências e contexto importantes. Máximo 200 palavras.",
-        },
-        { role: "user", content: userContent },
-      ],
-      []
-    );
+    const result = useFallback
+      ? await callOpenRouter(
+          [
+            {
+              role: "system",
+              content:
+                "Resuma a conversa abaixo em português de forma concisa. " +
+                "Preserve fatos, preferências e contexto importantes. Máximo 200 palavras.",
+            },
+            { role: "user", content: userContent },
+          ],
+          []
+        )
+      : await callGroq(
+          [
+            {
+              role: "system",
+              content:
+                "Resuma a conversa abaixo em português de forma concisa. " +
+                "Preserve fatos, preferências e contexto importantes. Máximo 200 palavras.",
+            },
+            { role: "user", content: userContent },
+          ],
+          []
+        );
+
+    recordLLMUsage({
+      chatId,
+      provider: useFallback ? "openrouter" : "groq",
+      model: useFallback ? config.openrouter.model : config.groq.model,
+      usage: result.usage,
+      label: "summarize",
+    });
+
     return result.content ?? fallbackSummary(messages, existingSummary);
   } catch (err) {
     console.error("⚠️  Erro ao sumarizar histórico:", err);

@@ -1,5 +1,9 @@
 import type { Tool, ToolContext } from "./tool.js";
 import { toolToLLMFormat } from "./tool.js";
+import {
+  checkExternalContent,
+  logSecurityEvent,
+} from "../guardrails/security.js";
 import { getCurrentTimeTool } from "./get_current_time.js";
 import { webSearchTool } from "./web_search.js";
 import { analyzeUploadedFileTool } from "./analyze_uploaded_file.js";
@@ -33,6 +37,16 @@ export async function executeTool(
   const tool = toolMap.get(name);
   if (!tool) {
     throw new Error(`Tool desconhecida: "${name}". Tools disponíveis: ${[...toolMap.keys()].join(", ")}`);
+  }
+
+  for (const [key, val] of Object.entries(args)) {
+    if (typeof val === "string") {
+      const check = checkExternalContent(val, "tool_argument");
+      logSecurityEvent("tool_argument", check);
+      if (!check.allowed) {
+        throw new Error(`Argumento "${key}" bloqueado pelo guardrail: ${check.reason}`);
+      }
+    }
   }
 
   console.log(`🔧 Executando tool: ${name}`, args);

@@ -50,6 +50,26 @@ export const config = {
     serperApiKey: optional_env("SERPER_API_KEY"),
     tavilyApiKey: optional_env("TAVILY_API_KEY"),
   },
+
+  /** Guardrails — custo (USD) e segurança de conteúdo externo */
+  guardrails: {
+    cost: {
+      /** USD por 1M tokens de entrada (Groq Llama 3.3 70B — ajuste conforme tarifa atual) */
+      groq: {
+        inputUsdPerM: parseFloat(optional_env("GROQ_INPUT_USD_PER_M", "0.59")),
+        outputUsdPerM: parseFloat(optional_env("GROQ_OUTPUT_USD_PER_M", "0.79")),
+      },
+      openrouter: {
+        inputUsdPerM: parseFloat(optional_env("OPENROUTER_INPUT_USD_PER_M", "0")),
+        outputUsdPerM: parseFloat(optional_env("OPENROUTER_OUTPUT_USD_PER_M", "0")),
+      },
+      /** 0 = sem limite; se > 0, bloqueia novas mensagens ao atingir o valor */
+      monthlyBudgetUsd: parseFloat(optional_env("MONTHLY_BUDGET_USD", "0")),
+    },
+    security: {
+      enabled: optional_env("GUARDRAIL_SECURITY_ENABLED", "true") !== "false",
+    },
+  },
 } as const;
 
 export type Config = typeof config;

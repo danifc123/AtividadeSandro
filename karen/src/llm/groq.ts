@@ -4,6 +4,7 @@ import {
   parseGroqErrorBody,
   salvageToolCallsFromFailedGeneration,
 } from "./tool_salvage.js";
+import { usageFromApi, type TokenUsage } from "./usage.js";
 
 // ─── Groq LLM Client ──────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ export type LLMResponse = {
   content: string | null;
   tool_calls: GroqToolCall[];
   finish_reason: string;
+  usage: TokenUsage;
 };
 
 export async function callGroq(
@@ -68,6 +70,7 @@ export async function callGroq(
       content: choice.message.content ?? null,
       tool_calls: (choice.message.tool_calls as GroqToolCall[]) ?? [],
       finish_reason: choice.finish_reason ?? "stop",
+      usage: usageFromApi(response.usage),
     };
   } catch (err) {
     const groqErr = parseGroqErrorBody(err);
@@ -88,6 +91,7 @@ export async function callGroq(
           content: null,
           tool_calls,
           finish_reason: "tool_calls",
+          usage: usageFromApi(),
         };
       }
     }

@@ -5,6 +5,10 @@ import {
   uploadedFileKey,
   type UploadedFileMeta,
 } from "../memory/sqlite.js";
+import {
+  checkExternalContent,
+  logSecurityEvent,
+} from "../guardrails/security.js";
 
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_EXT = new Set(["csv", "txt", "pdf"]);
@@ -35,6 +39,17 @@ function extensionFromName(name: string): string {
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
 }
 
+function finalizeUploadMeta(meta: UploadedFileMeta): UploadedFileMeta {
+  const check = checkExternalContent(meta.content, "uploaded_file");
+  logSecurityEvent("uploaded_file", check);
+  if (!check.allowed) {
+    throw new Error(
+      `Arquivo bloqueado pelo guardrail de segurança: ${check.reason}`
+    );
+  }
+  return { ...meta, content: check.sanitizedText };
+}
+
 export async function parseUploadedBuffer(
   buffer: Buffer,
   filename: string
@@ -52,27 +67,27 @@ export async function parseUploadedBuffer(
 
   if (ext === "txt") {
     const content = buffer.toString("utf-8");
-    return {
+    return finalizeUploadMeta({
       filename,
       type: "txt",
       content,
       charCount: content.length,
       uploadedAt: Date.now(),
-    };
+    });
   }
 
   if (ext === "csv") {
     const content = buffer.toString("utf-8");
     const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
     const header = lines[0]?.split(",").map((c) => c.trim()) ?? [];
-    return {
+    return finalizeUploadMeta({
       filename,
       type: "csv",
       content,
       rowCount: Math.max(0, lines.length - 1),
       columns: header,
       uploadedAt: Date.now(),
-    };
+    });
   }
 
   const { PDFParse } = await import("pdf-parse");
@@ -85,14 +100,14 @@ export async function parseUploadedBuffer(
       throw new Error("Não foi possível extrair texto deste PDF (pode ser só imagem).");
     }
 
-    return {
+    return finalizeUploadMeta({
       filename,
       type: "pdf",
       content,
       pageCount: result.total,
       charCount: content.length,
       uploadedAt: Date.now(),
-    };
+    });
   } finally {
     await parser.destroy();
   }

@@ -25,6 +25,15 @@ async function main(): Promise<void> {
   console.log(
     `   Usuários OK    : [${config.telegram.allowedUserIds.join(", ")}]`
   );
+  console.log(`   Guardrail custo: ativo (USD, tabela em .env)`);
+  console.log(
+    `   Guardrail segurança: ${config.guardrails.security.enabled ? "ativo" : "desativado"}`
+  );
+  if (config.guardrails.cost.monthlyBudgetUsd > 0) {
+    console.log(
+      `   Orçamento mensal: $${config.guardrails.cost.monthlyBudgetUsd} USD`
+    );
+  }
   console.log(``);
 
   // 3. Create and start the bot (long polling)

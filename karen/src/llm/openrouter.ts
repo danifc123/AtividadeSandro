@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { config } from "../config.js";
 import type { LLMMessage, LLMResponse, GroqToolCall } from "./groq.js";
+import { usageFromApi } from "./usage.js";
 
 // ─── OpenRouter Fallback Client ───────────────────────────────────────────────
 
@@ -54,5 +55,6 @@ export async function callOpenRouter(
     content: choice.message.content ?? null,
     tool_calls: (choice.message.tool_calls as GroqToolCall[]) ?? [],
     finish_reason: choice.finish_reason ?? "stop",
+    usage: usageFromApi(response.usage),
   };
 }
